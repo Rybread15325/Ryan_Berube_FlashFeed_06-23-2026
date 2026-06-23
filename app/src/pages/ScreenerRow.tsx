@@ -1,16 +1,20 @@
 'use client'
-import { useState } from 'react'
 import { clsx } from 'clsx'
 import type { ScreenerRow as SR } from '@/lib/types'
-import { TickerDetailModal } from '@/components/shared/TickerDetailModal'
+import { TickerMirror } from './TickerMirror'
 
 interface Props {
   row: SR
   columns: Array<{ key: string; label: string }>
+  rowIndex: number
+  colSpan: number
+  expanded: boolean
+  onExpand: () => void
 }
 
 function fmtCompact(n: number | undefined | null): string {
   if (n == null) return '—'
+  if (n >= 1e12) return `${(n / 1e12).toFixed(1)}T`
   if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
   if (n >= 1e3) return `${(n / 1e3).toFixed(0)}K`
@@ -47,14 +51,20 @@ function sentBar(bullish: number, bearish: number, neutral: number) {
   )
 }
 
-export function ScreenerRow({ row, columns }: Props) {
-  const [showDetail, setShowDetail] = useState(false)
-
+export function ScreenerRow({ row, columns, rowIndex, colSpan, expanded, onExpand }: Props) {
   const renderCell = (key: string) => {
     switch (key) {
+      case 'no':
+        return <span className="text-neutral font-mono">{rowIndex}</span>
       case 'ticker':
         return (
-          <button onClick={() => setShowDetail(true)} className="font-mono font-bold text-accent hover:text-sky-300 transition-colors">
+          <button
+            onClick={onExpand}
+            className={clsx(
+              'font-mono font-bold transition-colors',
+              expanded ? 'text-sky-300' : 'text-accent hover:text-sky-300'
+            )}
+          >
             {row.ticker}
           </button>
         )
@@ -82,10 +92,19 @@ export function ScreenerRow({ row, columns }: Props) {
         return <span className="font-mono text-neutral">{fmtNumber((row as any).rel_volume, 2)}x</span>
       case 'market_cap':
         return <span className="font-mono text-neutral">{fmtCompact((row as any).market_cap)}</span>
+      case 'pe_ratio':
+      case 'forward_pe':
+      case 'peg':
+      case 'ps_ratio':
+      case 'pb_ratio':
+      case 'debt_equity':
+      case 'beta':
+      case 'atr':
+        return <span className="font-mono text-neutral">{fmtNumber((row as any)[key], key === 'pe_ratio' || key === 'forward_pe' ? 1 : 2)}</span>
       case 'sector':
-        return <span className="text-neutral truncate max-w-[100px]">{row.sector ?? '—'}</span>
+        return <span className="text-neutral truncate block max-w-[120px]">{row.sector ?? '—'}</span>
       case 'industry':
-        return <span className="text-neutral truncate max-w-[100px]">{row.industry ?? '—'}</span>
+        return <span className="text-neutral truncate block max-w-[120px]">{row.industry ?? '—'}</span>
       case 'avg_sentiment':
         const avgSentiment = row.avg_sentiment ?? 0
         return (
@@ -131,15 +150,6 @@ export function ScreenerRow({ row, columns }: Props) {
         return <span className="font-mono text-emerald-400">{row.bullish_count ?? 0}</span>
       case 'bearish_count':
         return <span className="font-mono text-red-400">{row.bearish_count ?? 0}</span>
-      case 'pe_ratio':
-      case 'forward_pe':
-      case 'peg':
-      case 'ps_ratio':
-      case 'pb_ratio':
-      case 'debt_equity':
-      case 'beta':
-      case 'atr':
-        return <span className="font-mono text-neutral">{fmtNumber((row as any)[key], key === 'pe_ratio' || key === 'forward_pe' ? 1 : 2)}</span>
       case 'target_price':
         return <span className="font-mono text-neutral">{(row as any).target_price != null ? `$${Number((row as any).target_price).toFixed(2)}` : '—'}</span>
       case 'dividend_yield':
@@ -183,12 +193,28 @@ export function ScreenerRow({ row, columns }: Props) {
 
   return (
     <>
-      <tr className="hover:bg-card-hover transition-colors">
+      <tr
+        className={clsx(
+          'hover:bg-card-hover transition-colors cursor-pointer',
+          expanded && 'bg-card-hover'
+        )}
+        onClick={e => {
+          if ((e.target as HTMLElement).tagName === 'BUTTON') return
+          onExpand()
+        }}
+      >
         {columns.map(col => (
-          <td key={col.key} className="px-2 py-2 whitespace-nowrap">{renderCell(col.key)}</td>
+          <td key={col.key} className="px-2 py-1.5 whitespace-nowrap">{renderCell(col.key)}</td>
         ))}
       </tr>
-      {showDetail && <TickerDetailModal ticker={row.ticker} onClose={() => setShowDetail(false)} />}
+      {expanded && (
+        <TickerMirror
+          ticker={row.ticker}
+          row={row}
+          colSpan={colSpan}
+          onClose={onExpand}
+        />
+      )}
     </>
   )
 }

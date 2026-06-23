@@ -3,7 +3,6 @@ import useSWR from 'swr'
 import { useState, useMemo } from 'react'
 import { ScreenerTable } from './ScreenerTable'
 import { ScreenerFilterPanel } from './ScreenerFilterPanel'
-import { SignalBar } from './SignalBar'
 import { IntradayChart } from './IntradayChart'
 import type { Article, ScreenerRow } from '@/lib/types'
 
@@ -14,6 +13,7 @@ type FilterTab = 'descriptive' | 'technical' | 'performance' | 'sentiment' | 'al
 
 const VIEW_MODES: ViewMode[] = ['overview', 'performance', 'technical', 'sentiment']
 const PRESETS = [
+  { key: '', label: 'All' },
   { key: 'top_gainers', label: 'Top Gainers' },
   { key: 'top_losers', label: 'Top Losers' },
   { key: 'unusual_volume', label: 'Unusual Volume' },
@@ -21,6 +21,15 @@ const PRESETS = [
   { key: 'bearish_news', label: 'Bearish News' },
   { key: 'oversold', label: 'Oversold' },
   { key: 'overbought', label: 'Overbought' },
+]
+
+const MARKET_CAP_OPTIONS = [
+  { value: '', label: 'Any' },
+  { value: 'micro', label: 'Micro (<300M)' },
+  { value: 'small', label: 'Small (300M–2B)' },
+  { value: 'mid', label: 'Mid (2B–10B)' },
+  { value: 'large', label: 'Large (10B–200B)' },
+  { value: 'mega', label: 'Mega (>200B)' },
 ]
 
 function compact(n: number | null | undefined) {
@@ -335,16 +344,95 @@ export function ScreenerPage() {
 
   const resetFilters = () => { setFilters({}); setSignal(''); setSearch(''); setPage(0) }
 
+  const sectors = useMemo(() => [...new Set(tickers.map(t => t.sector).filter(Boolean))].sort() as string[], [tickers])
+  const industries = useMemo(() => [...new Set(tickers.map(t => t.industry).filter(Boolean))].sort() as string[], [tickers])
+  const countries = useMemo(() => [...new Set(tickers.map(t => (t as any).country).filter(Boolean))].sort() as string[], [tickers])
+
+  const handleSort = (key: string) => {
+    if (orderBy === key) {
+      setOrderDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setOrderBy(key)
+      setOrderDir(key === 'change_pct' || key === 'volume' ? 'desc' : 'asc')
+    }
+    setPage(0)
+  }
+
+  const selectCls = 'bg-bg border border-border rounded px-2 py-1 text-xs text-neutral hover:border-accent/50 focus:outline-none focus:border-accent transition-colors'
+
   return (
     <div>
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <h1 className="text-white font-semibold text-lg">Market Screener</h1>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-neutral uppercase">Social Window</span>
+      {/* Finviz-style compact toolbar */}
+      <div className="flex items-center gap-1.5 flex-wrap mb-3 bg-surface border border-border rounded-lg px-3 py-2">
+        <select
+          value={signal}
+          onChange={e => {
+            const v = e.target.value
+            setSignal(v)
+            if (v === 'top_losers') { setOrderBy('change_pct'); setOrderDir('asc') }
+            else if (v === 'unusual_volume') { setOrderBy('rel_volume'); setOrderDir('desc') }
+            else if (v) { setOrderBy('change_pct'); setOrderDir('desc') }
+            setPage(0)
+          }}
+          className={selectCls}
+        >
+          {PRESETS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+        </select>
+
+        <select value={(filters as any).exchange || ''} onChange={e => setFilter('exchange', e.target.value)} className={selectCls}>
+          <option value="">Exchange</option>
+          <option value="NASDAQ">NASDAQ</option>
+          <option value="NYSE">NYSE</option>
+          <option value="AMEX">AMEX</option>
+        </select>
+
+        <select value={filters.sector || ''} onChange={e => setFilter('sector', e.target.value)} className={selectCls}>
+          <option value="">Sector</option>
+          {sectors.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+
+        <select value={filters.industry || ''} onChange={e => setFilter('industry', e.target.value)} className={selectCls}>
+          <option value="">Industry</option>
+          {industries.map(i => <option key={i} value={i}>{i}</option>)}
+        </select>
+
+        <select value={(filters as any).country || ''} onChange={e => setFilter('country', e.target.value)} className={selectCls}>
+          <option value="">Country</option>
+          {countries.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+
+        <select value={filters.market_cap || ''} onChange={e => setFilter('market_cap', e.target.value)} className={selectCls}>
+          {MARKET_CAP_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.value ? `Market Cap: ${o.label}` : 'Market Cap'}</option>)}
+        </select>
+
+        <input
+          value={search}
+          onChange={e => { setSearch(e.target.value); setPage(0) }}
+          placeholder="Ticker / Company…"
+          className="bg-bg border border-border rounded px-2 py-1 text-xs text-neutral placeholder-slate-600 focus:outline-none focus:border-accent w-36"
+        />
+
+        <button
+          onClick={() => setShowFilters(s => !s)}
+          className={`text-xs px-2.5 py-1 rounded border transition-colors ${showFilters ? 'bg-accent/10 border-accent/40 text-accent' : 'border-border text-neutral hover:text-white hover:border-accent/50'}`}
+        >
+          More Filters {Object.keys(filters).filter(k => !['exchange','sector','industry','country','market_cap'].includes(k)).length > 0 ? `(${Object.keys(filters).filter(k => !['exchange','sector','industry','country','market_cap'].includes(k)).length})` : ''}
+        </button>
+
+        {(Object.keys(filters).length > 0 || signal || search) && (
+          <button onClick={resetFilters} className="text-xs text-red-400 hover:text-red-300 px-1">Reset</button>
+        )}
+
+        <button onClick={() => mutate()} className="text-xs px-2.5 py-1 rounded border border-border text-neutral hover:text-white hover:border-accent/50 transition-colors">
+          ↻ Refresh
+        </button>
+
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-[10px] text-neutral uppercase">Social</span>
           <select
             value={socialWindow}
             onChange={event => setSocialWindow(event.target.value)}
-            className="bg-bg border border-border rounded px-2 py-1 text-xs text-neutral"
+            className={selectCls}
           >
             <option value="adaptive">Adaptive</option>
             <option value="5">5m</option>
@@ -354,8 +442,34 @@ export function ScreenerPage() {
             <option value="120">2h</option>
             <option value="1440">24h</option>
           </select>
-          <span className="text-neutral text-sm">{filtered.length} NASDAQ/NYSE/AMEX tickers</span>
+          <span className="text-neutral text-xs whitespace-nowrap">{filtered.length} stocks</span>
         </div>
+      </div>
+
+      {/* Active filter pills */}
+      {Object.keys(filters).length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap mb-2">
+          {Object.entries(filters).map(([k, v]) => (
+            <span key={k} className="flex items-center gap-1 text-[11px] bg-accent/10 border border-accent/30 text-accent px-2 py-0.5 rounded">
+              {k}: {v}
+              <button onClick={() => setFilter(k, '')} className="hover:text-white ml-0.5 leading-none">&times;</button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* More filters panel */}
+      {showFilters && (
+        <ScreenerFilterPanel
+          filters={filters}
+          setFilter={setFilter}
+          activeTab={filterTab}
+          setActiveTab={setFilterTab}
+        />
+      )}
+
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <h1 className="text-white font-semibold text-lg">Market Screener</h1>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
@@ -434,62 +548,6 @@ export function ScreenerPage() {
         ))}
       </div>
 
-      <div className="flex gap-1.5 overflow-x-auto pb-2 mb-2">
-        {PRESETS.map(preset => (
-          <button
-            key={preset.key}
-            onClick={() => {
-              setSignal(signal === preset.key ? '' : preset.key)
-              setOrderBy(preset.key === 'top_losers' ? 'change_pct' : preset.key === 'unusual_volume' ? 'rel_volume' : 'change_pct')
-              setOrderDir(preset.key === 'top_losers' ? 'asc' : 'desc')
-            }}
-            className={`px-2.5 py-1 text-xs rounded border whitespace-nowrap ${signal === preset.key ? 'bg-accent/15 border-accent/50 text-accent' : 'bg-surface border-border text-neutral hover:text-white'}`}
-          >
-            {preset.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Signal bar */}
-      <SignalBar
-        signal={signal} setSignal={setSignal}
-        orderBy={orderBy} setOrderBy={setOrderBy}
-        orderDir={orderDir} setOrderDir={setOrderDir}
-        search={search} setSearch={setSearch}
-        onRefresh={() => mutate()}
-      />
-
-      {/* Filter toggle + active pills */}
-      <div className="flex items-center gap-2 mb-2 flex-wrap">
-        <button
-          onClick={() => setShowFilters(s => !s)}
-          className={`text-xs px-3 py-1.5 rounded border transition-colors ${
-            showFilters ? 'bg-accent/10 border-accent/40 text-accent' : 'border-border text-neutral hover:text-white hover:border-accent'
-          }`}
-        >
-          {showFilters ? '▾ Filters' : '▸ Filters'}
-        </button>
-        {Object.entries(filters).map(([k, v]) => (
-          <span key={k} className="flex items-center gap-1 text-[11px] bg-accent/10 border border-accent/30 text-accent px-2 py-0.5 rounded">
-            {k}: {v}
-            <button onClick={() => setFilter(k, '')} className="hover:text-white ml-0.5">&times;</button>
-          </span>
-        ))}
-        {Object.keys(filters).length > 0 && (
-          <button onClick={resetFilters} className="text-[11px] text-red-400 hover:text-red-300">Clear All</button>
-        )}
-      </div>
-
-      {/* Filter panel */}
-      {showFilters && (
-        <ScreenerFilterPanel
-          filters={filters}
-          setFilter={setFilter}
-          activeTab={filterTab}
-          setActiveTab={setFilterTab}
-        />
-      )}
-
       {/* View mode tabs */}
       <div className="flex items-center gap-1 mb-3 border-b border-border">
         {VIEW_MODES.map(mode => (
@@ -508,7 +566,15 @@ export function ScreenerPage() {
       </div>
 
       {/* Table */}
-      <ScreenerTable rows={paged} isLoading={isLoading} viewMode={viewMode} />
+      <ScreenerTable
+        rows={paged}
+        isLoading={isLoading}
+        viewMode={viewMode}
+        pageOffset={page * pageSize}
+        onSort={handleSort}
+        sortKey={orderBy}
+        sortDir={orderDir}
+      />
 
       {/* Pagination */}
       {totalPages > 1 && (

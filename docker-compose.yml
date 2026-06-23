@@ -93,6 +93,8 @@ services:
       KAFKA_PUBLISH_NEWS: ${KAFKA_PUBLISH_NEWS:-true}
       KAFKA_NEWS_MAX_TICKERS: ${KAFKA_NEWS_MAX_TICKERS:-500}
       DEFAULT_FETCH_MODE: ${DEFAULT_FETCH_MODE:-fast}
+      GROK_API_KEY: ${GROK_API_KEY:-}
+      GROK_MODEL: ${GROK_MODEL:-grok-3}
       NODE_ENV: development
     depends_on:
       mongo:

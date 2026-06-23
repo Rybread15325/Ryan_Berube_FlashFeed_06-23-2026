@@ -5268,7 +5268,7 @@ app.delete('/api/settings/keywords/:keyword', async (req, res) => {
 
 const DISK_TTL_KEY = 'disk_ttl_days'
 const DISK_ARCHIVE_COLLECTION = 'disk_archive'
-const DEFAULT_DISK_TTL_DAYS = 3
+const DEFAULT_DISK_TTL_DAYS = 7
 
 async function getDiskTtlDays() {
   try {
@@ -5378,6 +5378,49 @@ app.patch('/api/disk/settings', async (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, error: String(err.message || err) })
   }
+})
+
+// ── GROK (xAI) API PROXY ──────────────────────────────────────────────────────
+
+const GROK_API_KEY = process.env.GROK_API_KEY || ''
+const GROK_BASE_URL = 'https://api.x.ai/v1'
+const GROK_MODEL = process.env.GROK_MODEL || 'grok-3'
+
+app.post('/api/grok/analyze', async (req, res) => {
+  if (!GROK_API_KEY) {
+    return res.status(503).json({ ok: false, error: 'GROK_API_KEY not configured. Add it to .env to enable AI analysis.' })
+  }
+  const { ticker, context, prompt } = req.body || {}
+  if (!ticker) return res.status(400).json({ ok: false, error: 'ticker required' })
+
+  const systemMsg = `You are a concise financial analyst. Analyze the provided stock data and news for ${ticker}. Be direct, factual, and highlight key signals. Max 150 words.`
+  const userMsg = prompt || `Analyze ${ticker}. Context: ${context || 'No additional context.'}`
+
+  try {
+    const resp = await fetch(`${GROK_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROK_API_KEY}` },
+      body: JSON.stringify({
+        model: GROK_MODEL,
+        messages: [{ role: 'system', content: systemMsg }, { role: 'user', content: userMsg }],
+        max_tokens: 250,
+        temperature: 0.3,
+      }),
+    })
+    if (!resp.ok) {
+      const err = await resp.text()
+      return res.status(resp.status).json({ ok: false, error: `Grok API error ${resp.status}: ${err.slice(0, 200)}` })
+    }
+    const data = await resp.json()
+    const text = data.choices?.[0]?.message?.content || ''
+    res.json({ ok: true, ticker, analysis: text, model: GROK_MODEL })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err.message || err) })
+  }
+})
+
+app.get('/api/grok/status', (req, res) => {
+  res.json({ configured: !!GROK_API_KEY, model: GROK_MODEL })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
